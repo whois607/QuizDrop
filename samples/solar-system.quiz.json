@@ -1,0 +1,103 @@
+{
+  "format": "quizdrop",
+  "version": 1,
+  "id": "sample-solar-system",
+  "title": "Sample quiz: The Solar System",
+  "subject": "Science",
+  "description": "A short quiz that shows every question type QuizDrop supports.",
+  "settings": {
+    "shuffleQuestions": false,
+    "shuffleOptions": true,
+    "timeLimitMinutes": 0,
+    "passMark": 50
+  },
+  "questions": [
+    {
+      "id": "largest-planet",
+      "type": "multichoice",
+      "text": "Which planet in the Solar System is the largest?",
+      "marks": 1,
+      "options": [
+        { "text": "Jupiter", "correct": true },
+        { "text": "Saturn", "feedback": "Saturn is the second largest." },
+        { "text": "Neptune" },
+        { "text": "Earth" }
+      ],
+      "feedback": "Jupiter is more than twice as massive as all the other planets combined."
+    },
+    {
+      "id": "giant-planets",
+      "type": "multiselect",
+      "text": "Which of these are giant planets (gas giants or ice giants)?",
+      "marks": 2,
+      "options": [
+        { "text": "Jupiter", "correct": true },
+        { "text": "Saturn", "correct": true },
+        { "text": "Neptune", "correct": true },
+        { "text": "Mars" },
+        { "text": "Venus" }
+      ],
+      "feedback": "Jupiter and Saturn are gas giants; Uranus and Neptune are ice giants. Mars and Venus are rocky planets."
+    },
+    {
+      "id": "venus-hotter",
+      "type": "truefalse",
+      "text": "Venus has a hotter surface than Mercury, even though Mercury is closer to the Sun.",
+      "marks": 1,
+      "answer": true,
+      "feedback": "Venus's thick carbon dioxide atmosphere traps heat, making it the hottest planet."
+    },
+    {
+      "id": "our-galaxy",
+      "type": "shortanswer",
+      "text": "What is the name of the galaxy that contains the Solar System?",
+      "marks": 1,
+      "answers": ["Milky Way", "The Milky Way", "Milky Way Galaxy", "The Milky Way Galaxy"],
+      "feedback": "The Solar System sits in one of the spiral arms of the Milky Way."
+    },
+    {
+      "id": "light-minutes",
+      "type": "numerical",
+      "text": "About how many minutes does sunlight take to reach Earth?",
+      "marks": 1,
+      "answer": 8.3,
+      "tolerance": 0.5,
+      "unit": "minutes",
+      "feedback": "Light takes roughly 8 minutes 20 seconds to travel the 150 million km from the Sun to Earth."
+    },
+    {
+      "id": "planet-features",
+      "type": "matching",
+      "text": "Match each planet to the feature it is known for.",
+      "marks": 2,
+      "pairs": [
+        { "left": "Mars", "right": "Olympus Mons, the tallest known volcano" },
+        { "left": "Jupiter", "right": "The Great Red Spot" },
+        { "left": "Saturn", "right": "The most prominent ring system" },
+        { "left": "Earth", "right": "Liquid water oceans on the surface" }
+      ],
+      "distractors": ["A surface hot enough to melt lead"]
+    },
+    {
+      "id": "inner-order",
+      "type": "ordering",
+      "text": "Put the four inner planets in order, starting with the one closest to the Sun.",
+      "marks": 2,
+      "items": ["Mercury", "Venus", "Earth", "Mars"]
+    },
+    {
+      "id": "pluto",
+      "type": "essay",
+      "text": "Explain why Pluto was reclassified as a dwarf planet in 2006.",
+      "marks": 4,
+      "wordLimit": 150,
+      "modelAnswer": "In 2006 the International Astronomical Union (IAU) agreed a formal definition of a planet: it must orbit the Sun, be massive enough for its own gravity to pull it into a roughly round shape, and have cleared the neighbourhood around its orbit. Pluto meets the first two but not the third, because it shares its orbital region with many other Kuiper belt objects. The discovery of similar-sized bodies such as Eris made a clear definition necessary, so Pluto was placed in the new category of dwarf planet.",
+      "markingGuide": [
+        "1 mark: names the IAU and/or its 2006 definition of a planet",
+        "1 mark: states that Pluto orbits the Sun and is round (meets two criteria)",
+        "1 mark: states that Pluto has not cleared its orbital neighbourhood",
+        "1 mark: links this to the Kuiper belt or the discovery of similar bodies such as Eris"
+      ]
+    }
+  ]
+}
