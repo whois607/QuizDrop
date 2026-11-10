@@ -140,7 +140,8 @@
       (open ? '<a class="btn primary" href="#/attempt/' + enc(open.id) + '">Continue attempt</a>'
         : '<button class="btn primary" data-act="start" data-id="' + esc(q.id) + '">' + (done.length ? 'Re-attempt quiz' : 'Attempt quiz now') + '</button>') +
       '<button class="btn" data-act="export" data-id="' + esc(q.id) + '">Share quiz file</button>' +
-      '<button class="btn danger" data-act="delete" data-id="' + esc(q.id) + '">Delete</button></div>';
+      (q.questions.some(x => x.type === 'code' && x.language === 'python' && x.solution.trim()) ? '<button class="btn" data-act="verify" data-id="' + esc(q.id) + '">Test the model solutions</button>' : '') +
+      '<button class="btn danger" data-act="delete" data-id="' + esc(q.id) + '">Delete</button></div><div id="verifyres"></div>';
     if (done.length) {
       h += '<h2>Your attempts</h2><div class="scroll"><table class="tbl"><tr><th>Finished</th><th>Marks</th><th>Grade</th><th></th></tr>' +
         done.map(a => {
@@ -186,19 +187,53 @@
       case 'essay':
         return '<label class="prompt" for="ans">Your answer' + (q.wordLimit ? ' (aim for about ' + q.wordLimit + ' words)' : '') + ':</label>' +
           '<textarea id="ans" rows="8">' + esc(r || '') + '</textarea><div class="muted small" id="wc">' + plural(words(r), 'word') + '</div>';
+      case 'code': {
+        const ml = q.language === 'matlab', code = r ? r.code : q.starter, show = q.tests.filter(t => !t.hidden);
+        const cell = s => '<td><pre>' + esc(s) + '</pre></td>';
+        const hasCode = show.some(t => t.code.trim()), hasIn = show.some(t => t.input.trim());
+        let h = ml
+          ? '<div class="note">This one runs outside the app. Write and run your code in MATLAB or Octave, run each test below after it, and paste in what it prints.</div>'
+          : '<div class="prompt">For example:</div><div class="scroll"><table class="tbl res"><tr>' + (hasCode ? '<th>Test</th>' : '') + (hasIn ? '<th>Input</th>' : '') + '<th>Result</th></tr>' +
+            show.map(t => '<tr>' + (hasCode ? cell(t.code) : '') + (hasIn ? cell(t.input) : '') + cell(t.expected) + '</tr>').join('') + '</table></div>';
+        h += '<label class="prompt" for="code" style="display:block;margin-top:.8rem">' + (ml ? 'Your code (kept with your attempt):' : 'Your Python answer:') + '</label>' +
+          '<textarea id="code" class="code" rows="' + (ml ? 6 : 12) + '" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off">' + esc(code) + '</textarea>';
+        if (ml) h += q.tests.map((t, j) => {
+          const out = r && r.outputs ? r.outputs[j] || '' : '';
+          return '<div class="prompt" style="margin-top:.8rem">Test ' + (j + 1) + (t.code.trim() ? ' - run this:' : ' - run your code:') +
+            (live && live.showMl ? mark(C.outputMatches(t.expected, out, t.tolerance, true)) : '') + '</div>' +
+            (t.code.trim() ? '<pre>' + esc(t.code) + '</pre>' : '') + (t.input.trim() ? '<div class="prompt">and type this when it asks for input:</div><pre>' + esc(t.input) + '</pre>' : '') +
+            '<textarea class="code out" rows="3" spellcheck="false" autocapitalize="off" placeholder="Paste the output here" aria-label="Output of test ' + (j + 1) + '">' + esc(out) + '</textarea>';
+        }).join('');
+        h += '<div class="btnrow" style="margin-bottom:0"><button class="btn primary" data-act="check">Check</button><span class="muted small pystatus" style="align-self:center"></span></div>';
+        if (!ml && r && r.run) h += resultsTable(q, r.run, r.run.code !== r.code);
+        return h;
+      }
     }
     return '';
+  }
+
+  function resultsTable(q, run, stale) {
+    const pre = s => '<pre>' + esc(s) + '</pre>';
+    return '<div class="scroll" style="margin-top:.8rem"><table class="tbl res"><tr><th></th><th>Test</th><th>Expected</th><th>Got</th></tr>' +
+      q.tests.map((t, j) => {
+        const x = run.tests[j] || { ok: false, out: '', err: 'Not run' };
+        return '<tr><td>' + mark(x.ok) + '</td>' + (t.hidden ? '<td colspan="3" class="muted">Hidden test</td>'
+          : '<td>' + pre(t.code + (t.input.trim() ? (t.code.trim() ? '\n' : '') + 'Input:\n' + t.input : '')) + '</td><td>' + pre(t.expected) + '</td><td>' +
+            pre(x.out) + (x.err ? '<pre class="err">' + esc(x.err) + '</pre>' : '') + '</td>') + '</tr>';
+      }).join('') + '</table></div><div class="note ' + (run.passed ? 'ok' : 'bad') + '">' +
+      (run.passed ? 'Passed all tests.' : 'Not all tests passed. Marks are given only when every test passes.') + '</div>' +
+      '<div class="note warn stale"' + (stale ? '' : ' hidden') + '>Your code has changed since this check.</div>';
   }
 
   function queBlock(at, i, review) {
     const q = at.questions[i], r = at.responses[i], res = review ? at.results[i] : null;
     const labels = { correct: 'Correct', partial: 'Partially correct', incorrect: 'Incorrect', unanswered: 'Not answered', needsmarking: 'Requires marking', marked: 'Marked' };
     return '<div class="que" id="q' + i + '"><div class="info"><div class="no">Question <b>' + (i + 1) + '</b></div>' +
-      '<div class="state" id="qstate">' + (review ? labels[res.state] : stateText(at, i)) + '</div>' +
+      '<div class="state" id="qstate">' + (review ? (q.type === 'code' && res.state === 'needsmarking' ? 'Not tested yet' : labels[res.state]) : stateText(at, i)) + '</div>' +
       '<div>' + (review && res.awarded !== null ? 'Mark ' + num(res.awarded) + ' out of ' + num(q.marks) : 'Marked out of ' + num(q.marks)) + '</div>' +
       (review ? (at.flags[i] ? '<div>Flagged</div>' : '') : '<button class="link" data-act="flag">' + (at.flags[i] ? 'Remove flag' : 'Flag question') + '</button>') +
       '</div><div class="content"><div class="formulation"><div class="qtext">' + fmt(q.text) + '</div><div class="ablock">' +
-      (review ? reviewAnswer(q, r) : inputs(q, r)) + '</div></div>' + (review ? outcome(at, i) : '') + '</div></div>';
+      (review ? reviewAnswer(q, r, i) : inputs(q, r)) + '</div></div>' + (review ? outcome(at, i) : '') + '</div></div>';
   }
 
   function navBlock(at, review) {
@@ -221,8 +256,8 @@
       (review ? '<a href="#/quiz/' + enc(at.quizId) + '">Finish review</a>' : '<button class="link" data-act="goto" data-i="' + n + '">Finish attempt...</button>') + '</aside>';
   }
 
-  function viewAttempt(at) {
-    live = { at };
+  function viewAttempt(at, showMl) {
+    live = { at, showMl: !!showMl };
     const n = at.questions.length;
     if (!(at.pos >= 0 && at.pos <= n)) at.pos = 0;
     const i = at.pos;
@@ -249,7 +284,7 @@
   function tick() {
     if (!live) return;
     const at = live.at, left = at.startedAt + at.settings.timeLimitMinutes * 60000 - Date.now();
-    if (left <= 0) { toast('Time is up - your attempt has been submitted'); submit(at); return; }
+    if (left <= 0) { if (!submitting) { toast('Time is up - your attempt has been submitted'); submit(at); } return; }
     const el = document.getElementById('timer');
     if (!el) return;
     const s = Math.ceil(left / 1000);
@@ -266,6 +301,15 @@
       case 'truefalse': { const c = box.querySelector('input:checked'); return c ? c.value === 'true' : null; }
       case 'shortanswer': case 'numerical': case 'essay': { const v = box.querySelector('input,textarea').value; return v.trim() ? v : null; }
       case 'matching': { const a = Array.from(box.querySelectorAll('select')).map(s => s.value || null); return a.some(Boolean) ? a : null; }
+      case 'code': {
+        const prev = live.at.responses[live.at.pos] || {}, code = box.querySelector('#code').value;
+        const outs = Array.from(box.querySelectorAll('textarea.out')).map(t => t.value);
+        if (!code.trim() && !outs.some(o => o.trim())) return null;
+        const resp = { code };
+        if (prev.run) resp.run = prev.run;
+        if (q.language === 'matlab') resp.outputs = outs;
+        return resp;
+      }
     }
     return undefined;
   }
@@ -273,6 +317,7 @@
     const st = document.getElementById('qstate'); if (st) st.textContent = stateText(at, i);
     const b = app.querySelector('.qb[data-i="' + i + '"]'); if (b) b.classList.toggle('answered', C.isAnswered(at.questions[i], at.responses[i]));
     const wc = document.getElementById('wc'); if (wc) wc.textContent = plural(words(at.responses[i]), 'word');
+    const r = at.responses[i], stale = app.querySelector('.stale'); if (stale) stale.hidden = !(r && r.run && r.run.code !== r.code);
   }
   function onInput() {
     if (!live) return;
@@ -287,7 +332,77 @@
   app.addEventListener('input', onInput);
   app.addEventListener('change', onInput);
 
-  function submit(at) {
+  /* Code editor comforts: Tab indents, Enter keeps the indent (and adds one after a line ending in a colon). */
+  app.addEventListener('keydown', e => {
+    const ta = e.target;
+    if (!ta.matches || !ta.matches('textarea.code') || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'Tab' && !e.shiftKey) {
+      e.preventDefault(); ta.setRangeText('    ', ta.selectionStart, ta.selectionEnd, 'end');
+    } else if (e.key === 'Enter' && ta.id === 'code') {
+      const before = ta.value.slice(0, ta.selectionStart), line = before.slice(before.lastIndexOf('\n') + 1);
+      const ind = line.match(/^[ \t]*/)[0] + (/:\s*$/.test(line) ? '    ' : '');
+      if (!ind) return;
+      e.preventDefault(); ta.setRangeText('\n' + ind, ta.selectionStart, ta.selectionEnd, 'end');
+    } else return;
+    ta.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  /* ---------- running Python ---------- */
+  let pyWorker = null, pyBusy = false, pyStatusEl = null, submitting = false;
+  const PY_STATUS = { loading: 'Loading Python (the first time downloads about 10 MB)...', packages: 'Loading any packages the code imports...', running: 'Running tests...' };
+  function setPyStatus(msg) { if (pyStatusEl && pyStatusEl.isConnected) pyStatusEl.textContent = msg || ''; }
+  function runPython(job, seconds) {
+    return new Promise(resolve => {
+      if (!pyWorker) {
+        try { pyWorker = new Worker('py-worker.js'); } catch (e) { resolve({ error: 'This browser cannot run Python here.' }); return; }
+      }
+      const w = pyWorker, results = [];
+      let t = null;
+      const stop = () => { clearTimeout(t); w.onmessage = w.onerror = null; };
+      const kill = () => { stop(); w.terminate(); pyWorker = null; };
+      const arm = () => {
+        clearTimeout(t);
+        t = setTimeout(() => { kill(); resolve({ results, note: 'Stopped after ' + seconds + ' seconds - is there an infinite loop?' }); }, seconds * 1000);
+      };
+      w.onmessage = e => {
+        const m = e.data;
+        if (m.status) { setPyStatus(PY_STATUS[m.status]); if (m.status === 'running') arm(); }
+        else if (m.result) { results.push(m.result); arm(); }
+        else if (m.done) { stop(); resolve({ results }); }
+        else if (m.error) { if (m.fatal) kill(); else stop(); resolve({ error: m.error }); }
+      };
+      w.onerror = () => { kill(); resolve({ error: 'Could not start Python. The first use needs an internet connection; after that it works offline.' }); };
+      w.postMessage(job);
+    });
+  }
+  const pyJob = (q, code) => ({ code, tests: q.tests.map(t => ({ code: t.code, input: t.input })) });
+  /* Runs the answer to question i against its tests and stores the outcome on the response. */
+  async function checkCode(at, i) {
+    const q = at.questions[i], r = at.responses[i];
+    if (!r || !r.code || !r.code.trim()) return false;
+    if (pyBusy) { toast('Python is already running - try again in a moment'); return false; }
+    pyBusy = true; setPyStatus('Starting Python...');
+    const code = r.code, res = await runPython(pyJob(q, code), q.timeLimitSeconds);
+    pyBusy = false;
+    if (res.error) { setPyStatus(res.error); return false; }
+    const cur = at.responses[i];   // may be a newer object if they kept typing
+    if (cur) { cur.run = C.judgeRun(q, code, res.results, res.note); saveAttempts(); }
+    setPyStatus('');
+    return true;
+  }
+
+  async function submit(at) {
+    if (submitting) return;
+    submitting = true; clearInterval(timer); timer = null;
+    try {
+      for (let i = 0; i < at.questions.length; i++) {
+        const q = at.questions[i], r = at.responses[i];
+        if (q.type === 'code' && q.language === 'python' && C.isAnswered(q, r) && !(r.run && r.run.code === r.code)) {
+          toast('Testing your code...');
+          await checkCode(at, i);
+        }
+      }
+    } finally { submitting = false; }
     C.finishAttempt(at, Date.now());
     saveAttempts();
     go('review/' + enc(at.id));
@@ -296,7 +411,7 @@
   /* ---------- review ---------- */
   const mark = ok => ok ? ' <span class="tick" aria-label="correct">&#10003;</span>' : ' <span class="cross" aria-label="incorrect">&#10007;</span>';
 
-  function reviewAnswer(q, r) {
+  function reviewAnswer(q, r, i) {
     const none = '<div class="muted">No answer given.</div>';
     switch (q.type) {
       case 'multichoice': case 'multiselect': {
@@ -322,6 +437,18 @@
         return r.map((it, j) => '<div class="orow"><span class="n">' + (j + 1) + '.</span><span class="x">' + fmt(it) + mark(it === q.items[j]) + '</span></div>').join('');
       case 'essay':
         return C.isAnswered(q, r) ? '<div class="prompt">Your answer (' + plural(words(r), 'word') + '):</div><div class="answerbox">' + esc(r) + '</div>' : none;
+      case 'code': {
+        if (!C.isAnswered(q, r)) return none;
+        const h = '<div class="prompt">Your code:</div><pre>' + esc(r.code && r.code.trim() ? r.code : '(none pasted)') + '</pre>';
+        if (q.language === 'matlab') return h + q.tests.map((t, j) => {
+          const out = (r.outputs || [])[j] || '';
+          return '<div class="prompt" style="margin-top:.8rem">Test ' + (j + 1) + mark(C.outputMatches(t.expected, out, t.tolerance, true)) + '</div>' + (t.code.trim() ? '<pre>' + esc(t.code) + '</pre>' : '') +
+            '<div class="prompt">Your pasted output:</div><pre>' + esc(out.trim() ? out : '(nothing pasted)') + '</pre><div class="prompt">Expected:</div><pre>' + esc(t.expected) + '</pre>';
+        }).join('');
+        if (r.run && r.run.code === r.code) return h + resultsTable(q, r.run, false);
+        return h + '<div class="note warn">This answer has not been tested yet, so it has no mark.</div><div class="btnrow" style="margin-bottom:0">' +
+          '<button class="btn primary" data-act="runtests" data-i="' + i + '">Run tests</button><span class="muted small pystatus" style="align-self:center"></span></div>';
+      }
     }
     return '';
   }
@@ -338,6 +465,7 @@
       case 'numerical': h += '<p>The correct answer is: ' + num(q.answer) + (q.unit ? ' ' + esc(q.unit) : '') + (q.tolerance ? ' (accepted within &plusmn;' + num(q.tolerance) + ')' : '') + '</p>'; break;
       case 'matching': h += '<p>The correct matches are:</p><ul>' + q.pairs.map(p => '<li>' + fmt(p.left) + ' &rarr; ' + fmt(p.right) + '</li>').join('') + '</ul>'; break;
       case 'ordering': h += '<p>The correct order is: ' + q.items.map(fmt).join(' &rarr; ') + '</p>'; break;
+      case 'code': if (q.solution.trim()) h += '<p><strong>Model solution:</strong></p><pre>' + esc(q.solution) + '</pre>'; break;
       case 'essay':
         if (res.state === 'marked') h += '<p><strong>Mark: ' + num(res.awarded) + ' / ' + num(q.marks) + '</strong> <span class="small">(' + (res.markedBy === 'claude' ? 'marked by Claude' : 'marked by you') + ')</span></p>' + (res.comment ? '<p>' + fmt(res.comment) + '</p>' : '');
         if (q.modelAnswer) h += '<p><strong>Model answer:</strong> ' + fmt(q.modelAnswer) + '</p>';
@@ -359,8 +487,10 @@
       '<tr><th>Time taken</th><td>' + fmtDur(at.finishedAt - at.startedAt) + '</td></tr>' +
       '<tr><th>Marks</th><td>' + num(t.score) + ' / ' + num(t.max) + (t.pending ? ' <span class="muted">so far</span>' : '') + '</td></tr>' +
       '<tr><th>Grade</th><td>' + (t.pending ? '<span class="chip pend">Awaiting marking</span>' : '<strong>' + t.percent + '%</strong> <span class="chip ' + (pass ? 'ok' : 'bad') + '">' + (pass ? 'Pass' : 'Below pass mark') + '</span>') + '</td></tr></table>';
-    if (t.pending) {
-      h += '<div class="note pend"><strong>' + plural(t.pending, 'written answer') + ' to be marked by Claude.</strong>' +
+    const pe = at.questions.filter((q, i) => q.type === 'essay' && at.results[i].state === 'needsmarking').length;
+    if (t.pending - pe) h += '<div class="note warn"><strong>' + plural(t.pending - pe, 'code answer') + ' not tested yet.</strong> Python could not run when you submitted. Press Run tests on ' + (t.pending - pe === 1 ? 'that question' : 'those questions') + ' below.</div>';
+    if (pe) {
+      h += '<div class="note pend"><strong>' + plural(pe, 'written answer') + ' to be marked by Claude.</strong>' +
         '<ol class="steps"><li>Copy the marking request and paste it into a Claude chat.</li><li>Copy the json block Claude replies with.</li><li>Paste it on the Import screen. The marks land on this attempt.</li></ol>' +
         '<div class="btnrow" style="margin-bottom:0"><button class="btn primary" data-act="copyreq" data-id="' + esc(at.id) + '">Copy marking request</button>' +
         '<a class="btn" href="#/import">Paste marks from Claude</a></div>' +
@@ -501,6 +631,10 @@
       '<li>Ask Claude, for example: <em>"Make a QuizDrop quiz of 15 questions on chapter 3 of these notes, mostly multiple choice with two written questions."</em></li>' +
       '<li>Copy Claude\'s reply (or download the <code>.quiz.json</code> file it makes).</li>' +
       '<li>Open <a href="#/import">Import</a>, paste or choose the file, and press Import. The quiz is checked and added.</li></ol></div>' +
+      '<div class="card" style="margin-top:1rem"><h3>Code questions</h3><p><strong>Python</strong> answers run right here on your device and are checked against test cases, like CodeRunner in Moodle. ' +
+      'Press Check as often as you like; marks are given when every test passes. The first Python question downloads Python itself (about 10 MB, needs internet once); after that it works offline. ' +
+      'NumPy, SciPy, SymPy, pandas and Matplotlib are available and download the first time your code imports them.</p>' +
+      '<p><strong>MATLAB</strong> cannot run inside the app. For MATLAB questions you run your code in MATLAB or Octave yourself and paste in what each test prints; the app checks it against the expected output.</p></div>' +
       '<div class="card" style="margin-top:1rem"><h3>Written answers</h3><p>Multiple choice, true/false, short answer, numerical, matching and ordering questions are marked instantly. ' +
       'Written answers are marked by Claude: after you submit, the review screen gives you a marking request to copy into a chat, and you paste Claude\'s reply into Import.</p></div>' +
       '<div class="card" style="margin-top:1rem"><h3>Install the app</h3><p><strong>Windows / Android (Chrome or Edge):</strong> open the browser menu and choose <em>Install app</em> or <em>Add to Home screen</em>. ' +
@@ -553,6 +687,52 @@
         const q = at.questions[at.pos], cur = (at.responses[at.pos] || q.start).slice();
         if (act === 'ord') { const j = +el.dataset.j, k = j + (+el.dataset.d); if (k < 0 || k >= cur.length) break; [cur[j], cur[k]] = [cur[k], cur[j]]; }
         at.responses[at.pos] = cur; saveAttemptsSoon(); viewAttempt(at);
+        break;
+      }
+      case 'check': if (at) {
+        const i = at.pos, q = at.questions[i];
+        onInput();
+        if (q.language === 'matlab') { viewAttempt(at, true); break; }
+        if (!C.isAnswered(q, at.responses[i])) { toast('Write your code first'); break; }
+        pyStatusEl = el.parentNode.querySelector('.pystatus');
+        el.disabled = true;
+        const ok = await checkCode(at, i);
+        el.disabled = false;
+        if (ok && live && live.at === at && at.pos === i) viewAttempt(at);
+        break;
+      }
+      case 'runtests': {
+        const a = attempts[location.hash.split('/')[2] || ''], i = +el.dataset.i;
+        if (!a || !a.results) break;
+        pyStatusEl = el.parentNode.querySelector('.pystatus');
+        el.disabled = true;
+        const ok = await checkCode(a, i);
+        el.disabled = false;
+        if (!ok) break;
+        a.results[i] = C.grade(a.questions[i], a.responses[i]); saveAttempts();
+        if (location.hash === '#/review/' + enc(a.id)) { viewReview(a); const t = document.getElementById('q' + i); if (t) t.scrollIntoView({ block: 'start' }); }
+        break;
+      }
+      case 'verify': {
+        const q = quizzes[el.dataset.id], box = document.getElementById('verifyres');
+        if (!q || !box) break;
+        if (pyBusy) { toast('Python is already running - try again in a moment'); break; }
+        const todo = q.questions.map((x, k) => [x, k]).filter(p => p[0].type === 'code' && p[0].language === 'python' && p[0].solution.trim());
+        const bad = [];
+        let err = '';
+        pyBusy = true; el.disabled = true;
+        box.innerHTML = '<p class="muted small pystatus">Starting Python...</p>';
+        pyStatusEl = box.firstChild;
+        for (const [x, k] of todo) {
+          const res = await runPython(pyJob(x, x.solution), x.timeLimitSeconds);
+          if (res.error) { err = res.error; break; }
+          const run = C.judgeRun(x, x.solution, res.results, res.note), fails = run.tests.filter(t => !t.ok).length;
+          if (fails) bad.push('Question ' + (k + 1) + ': the model solution fails ' + fails + ' of its ' + plural(run.tests.length, 'test') + '.');
+        }
+        pyBusy = false; el.disabled = false;
+        if (box.isConnected) box.innerHTML = err ? '<div class="note bad">' + esc(err) + '</div>'
+          : bad.length ? '<div class="note bad"><strong>These questions need fixing (you can paste this list back to Claude):</strong><ul>' + bad.map(b => '<li>' + esc(b) + '</li>').join('') + '</ul></div>'
+          : '<div class="note ok">' + (todo.length === 1 ? 'The model solution passes its tests.' : 'All ' + todo.length + ' model solutions pass their tests.') + '</div>';
         break;
       }
       case 'submit': if (at) {

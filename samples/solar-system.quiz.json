@@ -86,6 +86,21 @@
       "items": ["Mercury", "Venus", "Earth", "Mars"]
     },
     {
+      "id": "orbital-period",
+      "type": "code",
+      "language": "python",
+      "text": "Write a Python function `orbital_period(a)` that returns a planet's orbital period in Earth years, given its average distance from the Sun `a` in astronomical units (AU).\n\nUse Kepler's third law: T² = a³.",
+      "marks": 2,
+      "starter": "def orbital_period(a):\n    ",
+      "tests": [
+        { "code": "print(orbital_period(1))", "expected": "1.0" },
+        { "code": "print(round(orbital_period(5.2), 2))", "expected": "11.86" },
+        { "code": "print(round(orbital_period(0.39), 3))", "expected": "0.244", "hidden": true }
+      ],
+      "solution": "def orbital_period(a):\n    return a ** 1.5\n",
+      "feedback": "T² = a³ means T = a to the power 1.5. Jupiter, at 5.2 AU, takes nearly 12 years to go round the Sun."
+    },
+    {
       "id": "pluto",
       "type": "essay",
       "text": "Explain why Pluto was reclassified as a dwarf planet in 2006.",

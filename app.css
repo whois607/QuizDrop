@@ -116,6 +116,12 @@ ol.steps { padding-left: 1.3rem; } ol.steps li { margin: .5rem 0; }
 .outcome p:first-child { margin-top: 0; } .outcome p:last-child { margin-bottom: 0; }
 .outcome ul { margin: .3rem 0; padding-left: 1.2rem; }
 .manual { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .6rem; } .manual input { width: 5.5rem; }
+textarea.code { font-family: ui-monospace, Consolas, monospace; font-size: .9rem; line-height: 1.45; tab-size: 4; white-space: pre; overflow-wrap: normal; overflow-x: auto; min-height: 0; }
+.tbl.res th, .tbl.res td { padding: .4rem .6rem; }
+.tbl.res pre { margin: 0; padding: 0; border: 0; background: none; white-space: pre-wrap; overflow-wrap: anywhere; }
+.tbl.res pre.err, pre.err { color: var(--bad); }
+.formulation pre { background: var(--card); }
+[hidden] { display: none !important; }
 .pager { display: flex; justify-content: space-between; gap: .5rem; }
 
 #toast { position: fixed; left: 50%; bottom: max(20px, env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--ink); color: var(--bg);

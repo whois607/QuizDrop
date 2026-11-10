@@ -11,11 +11,11 @@ const sample = () => JSON.parse(fs.readFileSync(path.join(root, 'samples', 'sola
 const load = () => C.normaliseQuiz(sample());
 const fixed = () => 0.42;   // steady "random" so shuffles repeat
 
-test('sample quiz imports cleanly with all eight types', () => {
+test("sample quiz imports cleanly with all nine types", () => {
   const r = load();
   assert.deepStrictEqual(r.errors, []);
   assert.deepStrictEqual(r.warnings, []);
-  assert.strictEqual(new Set(r.quiz.questions.map(q => q.type)).size, 8);
+  assert.strictEqual(new Set(r.quiz.questions.map(q => q.type)).size, 9);
 });
 
 test('the example inside the skill folder and every json block in the instructions are valid', () => {
@@ -23,9 +23,9 @@ test('the example inside the skill folder and every json block in the instructio
   assert.deepStrictEqual(C.normaliseQuiz(ex).errors, []);
   const md = fs.readFileSync(path.join(root, 'claude-package', 'INSTRUCTIONS.md'), 'utf8');
   const blocks = [...md.matchAll(/```json\n([\s\S]*?)```/g)].map(m => JSON.parse(m[1]));
-  assert.ok(blocks.length >= 9);
+  assert.ok(blocks.length >= 12);
   const qs = blocks.filter(b => b.type);
-  assert.strictEqual(qs.length, 7);
+  assert.strictEqual(qs.length, 10);
   const r = C.normaliseQuiz({ format: 'quizdrop', version: 1, title: 'Docs', questions: qs });
   assert.deepStrictEqual(r.errors, []);
 });
@@ -79,11 +79,12 @@ test('a perfect attempt scores full marks on the auto-marked questions', () => {
     if (q.type === 'matching') at.responses[i] = q.pairs.map(p => p.right);
     if (q.type === 'ordering') at.responses[i] = q.items.slice();
     if (q.type === 'essay') at.responses[i] = 'Pluto has not cleared its orbit.';
+    if (q.type === 'code') at.responses[i] = { code: q.solution, run: C.judgeRun(q, q.solution, q.tests.map(t => ({ out: t.expected + '\n', err: '' }))) };
   });
   C.finishAttempt(at, 5000);
   const t = C.totals(at);
-  assert.strictEqual(t.max, 14);
-  assert.strictEqual(t.score, 10);
+  assert.strictEqual(t.max, 16);
+  assert.strictEqual(t.score, 12);
   assert.strictEqual(t.pending, 1);
 });
 
@@ -141,6 +142,70 @@ test('marking request round trip', () => {
 test('text is escaped before the light formatting is applied', () => {
   assert.strictEqual(C.fmt('<img onerror=x> **b** `c`\nnext'), '&lt;img onerror=x&gt; <strong>b</strong> <code>c</code><br>next');
   assert.strictEqual(C.fmt('```js\nlet a = 1 < 2;\n```'), '<pre>let a = 1 &lt; 2;</pre>');
+});
+
+test('comparing printed output', () => {
+  const m = C.outputMatches;
+  assert.ok(m('7', '7\n', null, false));
+  assert.ok(m('a\nb', 'a  \nb\n\n', null, false));
+  assert.ok(!m('2', '2.0', null, false));
+  assert.ok(!m('True', 'true', null, false));
+  assert.ok(!m('a\nb', 'a\n\nb', null, false));
+  assert.ok(m('2', '2.0', 0, false));
+  assert.ok(m('[1.0, 2.5]', '[1.  2.5]', 0.001, false));
+  assert.ok(m('3.1416', '3.14159265', 0.0005, false));
+  assert.ok(!m('3.1416', '3.15', 0.0005, false));
+  assert.ok(!m('1 2', '1 2 3', 0.1, false));
+  assert.ok(m('x = 1.5', 'x = 1.5001', 0.001, false));
+  // MATLAB: padding, blank lines and "ans =" headers do not matter
+  assert.ok(m('5', '\nans =\n\n     5\n\n', 0.0005, true));
+  assert.ok(m('1.414', '    1.4142\n', 0.0005, true));
+  assert.ok(m('1 2\n3 4', '\n     1     2\n     3     4\n\n', 0.0005, true));
+  assert.ok(!m('5', '6', 0.0005, true));
+  assert.ok(!m('5', '', 0.0005, true));
+});
+
+test('code questions: checking, marking and stale runs', () => {
+  const r = C.normaliseQuiz({ format: 'quizdrop', title: 'Code', questions: [
+    { type: 'code', text: 'Add', starter: 'def add(a, b):\n    ', solution: 'def add(a, b):\n    return a + b\n', marks: 3,
+      tests: [{ code: 'print(add(1, 2))', expected: 3 }, { code: 'print(add(0.1, 0.2))', expected: '0.3', tolerance: 0.001, hidden: true }] },
+    { type: 'CodeRunner', language: 'Octave', text: 'Hyp', tests: [{ code: 'disp(hyp(3, 4))', expected: '5', hidden: true }] }
+  ] });
+  assert.deepStrictEqual(r.errors, []);
+  const [py, ml] = r.quiz.questions;
+  assert.strictEqual(py.language, 'python');
+  assert.strictEqual(py.starter, 'def add(a, b):\n    ');
+  assert.strictEqual(py.tests[0].expected, '3');
+  assert.strictEqual(py.tests[0].tolerance, null);
+  assert.strictEqual(ml.language, 'matlab');
+  assert.strictEqual(ml.tests[0].hidden, false);
+  assert.strictEqual(ml.tests[0].tolerance, 0.0005);
+
+  assert.strictEqual(C.isAnswered(py, { code: 'def add(a, b):\n    ' }), false);
+  const code = py.solution;
+  assert.strictEqual(C.grade(py, { code }).state, 'needsmarking');
+  const good = C.judgeRun(py, code, [{ out: '3\n', err: '' }, { out: '0.30000000000000004\n', err: '' }]);
+  assert.strictEqual(good.passed, true);
+  assert.deepStrictEqual(C.grade(py, { code, run: good }), { state: 'correct', awarded: 3 });
+  assert.strictEqual(C.grade(py, { code: code + '# edited', run: good }).state, 'needsmarking');
+  const crash = C.judgeRun(py, code, [{ out: '3\n', err: 'Traceback...\nZeroDivisionError' }, { out: '0.3\n', err: '' }]);
+  assert.deepStrictEqual(crash.tests.map(t => t.ok), [false, true]);
+  assert.deepStrictEqual(C.grade(py, { code, run: crash }), { state: 'incorrect', awarded: 0 });
+  const slow = C.judgeRun(py, code, [{ out: '3\n', err: '' }], 'Stopped after 10 seconds');
+  assert.strictEqual(slow.passed, false);
+  assert.strictEqual(slow.tests[1].err, 'Stopped after 10 seconds');
+
+  assert.strictEqual(C.grade(ml, { code: '', outputs: ['ans =\n     5\n'] }).state, 'correct');
+  assert.strictEqual(C.grade(ml, { code: 'x', outputs: ['4'] }).state, 'incorrect');
+  assert.strictEqual(C.grade(ml, null).state, 'unanswered');
+
+  const bad = C.normaliseQuiz({ title: 'Bad code', questions: [
+    { type: 'code', text: 'a', language: 'java', tests: [{ expected: '1' }] },
+    { type: 'code', text: 'b' },
+    { type: 'code', text: 'c', tests: [{ code: 'print(1)' }, { expected: '1', hidden: true }] },
+    { type: 'code', text: 'd', tests: [{ expected: '1', hidden: true }] }
+  ] });
+  assert.strictEqual(bad.errors.length, 4);
 });
 
 console.log('\nAll ' + n + ' tests passed.');

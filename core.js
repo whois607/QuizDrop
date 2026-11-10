@@ -16,13 +16,14 @@
     numerical: 'numerical', numeric: 'numerical', number: 'numerical',
     matching: 'matching', match: 'matching',
     ordering: 'ordering', order: 'ordering', sequence: 'ordering',
-    essay: 'essay', written: 'essay', longanswer: 'essay', extendedresponse: 'essay'
+    essay: 'essay', written: 'essay', longanswer: 'essay', extendedresponse: 'essay',
+    code: 'code', coding: 'code', coderunner: 'code', program: 'code', programming: 'code'
   };
 
   const TYPE_LABELS = {
     multichoice: 'Multiple choice', multiselect: 'Multiple answers', truefalse: 'True / false',
     shortanswer: 'Short answer', numerical: 'Numerical', matching: 'Matching',
-    ordering: 'Ordering', essay: 'Written'
+    ordering: 'Ordering', essay: 'Written', code: 'Code'
   };
 
   const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -137,6 +138,29 @@
       q.markingGuide = list(rq.markingGuide).map(str).filter(Boolean);
       const wl = Number(rq.wordLimit);
       q.wordLimit = Number.isFinite(wl) && wl > 0 ? Math.round(wl) : 0;
+    } else if (type === 'code') {
+      const raw = v => (typeof v === 'string' ? v.replace(/\r\n?/g, '\n') : '');   // code keeps its indentation
+      const lang = String(rq.language || 'python').toLowerCase().trim();
+      q.language = lang === 'octave' ? 'matlab' : lang;
+      if (q.language !== 'python' && q.language !== 'matlab') bad('"language" must be "python" or "matlab"');
+      const ml = q.language === 'matlab';
+      q.starter = raw(rq.starter);
+      q.solution = raw(rq.solution);
+      const tl = Number(rq.timeLimitSeconds);
+      q.timeLimitSeconds = Number.isFinite(tl) && tl > 0 ? Math.min(60, tl) : 10;
+      if (!Array.isArray(rq.tests) || !rq.tests.length) { bad('needs at least 1 test in "tests"'); return q; }
+      q.tests = rq.tests.map((t, j) => {
+        if (!isObj(t)) { bad('test ' + (j + 1) + ' is not an object'); return null; }
+        const expected = typeof t.expected === 'number' ? String(t.expected) : raw(t.expected);
+        if (!expected.trim()) bad('test ' + (j + 1) + ' needs its "expected" output');
+        let tol = ml ? 0.0005 : null;   // MATLAB prints 4 decimals by default, so its numbers are compared loosely
+        if (t.tolerance !== undefined && t.tolerance !== null) {
+          tol = Number(t.tolerance);
+          if (!Number.isFinite(tol) || tol < 0) { bad('test ' + (j + 1) + ' "tolerance" must be 0 or more'); tol = null; }
+        }
+        return { code: raw(t.code), input: raw(t.input), expected, hidden: !ml && t.hidden === true, tolerance: tol };
+      }).filter(Boolean);
+      if (q.tests.length && q.tests.every(t => t.hidden)) bad('needs at least one test that is not hidden');
     }
     return q;
   }
@@ -221,6 +245,10 @@
       case 'shortanswer': case 'numerical': case 'essay': return String(r).trim() !== '';
       case 'matching': return Array.isArray(r) && r.some(Boolean);
       case 'ordering': return Array.isArray(r) && r.length === q.items.length;
+      case 'code': {
+        const code = String(r.code || '').trim();
+        return (code !== '' && code !== q.starter.trim()) || (Array.isArray(r.outputs) && r.outputs.some(o => o && o.trim()));
+      }
       default: return true;
     }
   }
@@ -228,6 +256,39 @@
   function parseNum(v) {
     const n = parseFloat(String(v).replace(/[,\s]/g, ''));
     return Number.isFinite(n) ? n : null;
+  }
+
+  /* Compares printed output with the expected output. Trailing spaces and blank lines at the end never matter.
+     With a tolerance, numbers are compared by value and brackets/commas are ignored ("[1. 2.]" matches "1.0, 2.0").
+     MATLAB output is also stripped of its padding, blank lines and "ans =" header lines. */
+  function outLines(s, matlab) {
+    let lines = String(s === null || s === undefined ? '' : s).replace(/\r\n?/g, '\n').split('\n').map(l => l.replace(/\s+$/, ''));
+    if (matlab) lines = lines.map(l => l.trim().replace(/\s+/g, ' ')).filter(l => l && !/^[A-Za-z_]\w*\s*=$/.test(l));
+    while (lines.length && lines[lines.length - 1] === '') lines.pop();
+    return lines;
+  }
+  function outputMatches(expected, got, tolerance, matlab) {
+    const a = outLines(expected, matlab), b = outLines(got, matlab);
+    if (tolerance === null || tolerance === undefined) return a.length === b.length && a.every((l, i) => l === b[i]);
+    const toks = ls => ls.join('\n').split(/[\s,;\[\]()]+/).filter(Boolean);
+    const x = toks(a), y = toks(b);
+    return x.length === y.length && x.every((t, i) => {
+      if (t === y[i]) return true;
+      const m = Number(t), n = Number(y[i]);
+      return Number.isFinite(m) && Number.isFinite(n) && Math.abs(m - n) <= tolerance + 1e-12;
+    });
+  }
+
+  /* Turns what the Python runner returned ([{out, err}] per test, possibly cut short) into a pass/fail record. */
+  function judgeRun(q, code, raw, note) {
+    const clip = s => { s = String(s || ''); return s.length > 2000 ? s.slice(0, 2000) + '\n... (cut)' : s; };
+    let noted = false;
+    const tests = q.tests.map((t, i) => {
+      const r = raw[i];
+      if (!r) { const err = !noted && note ? note : 'Not run'; noted = true; return { ok: false, out: '', err }; }
+      return { ok: !r.err && outputMatches(t.expected, r.out, t.tolerance, false), out: clip(r.out), err: clip(r.err) };
+    });
+    return { code, passed: tests.length > 0 && tests.every(t => t.ok), tests };
   }
 
   function grade(q, r) {
@@ -256,6 +317,11 @@
       case 'matching': f = q.pairs.filter((p, i) => r[i] === p.right).length / q.pairs.length; break;
       case 'ordering': f = q.items.filter((it, i) => r[i] === it).length / q.items.length; break;
       case 'essay': return { state: 'needsmarking', awarded: null };
+      case 'code':   // all-or-nothing, like CodeRunner
+        if (q.language === 'matlab') f = q.tests.every((t, i) => outputMatches(t.expected, (r.outputs || [])[i] || '', t.tolerance, true)) ? 1 : 0;
+        else if (!r.run || r.run.code !== r.code) return { state: 'needsmarking', awarded: null };   // not tested since the last edit
+        else f = r.run.passed ? 1 : 0;
+        break;
     }
     return { state: f >= 1 ? 'correct' : (f > 0 ? 'partial' : 'incorrect'), awarded: round2(f * q.marks) };
   }
@@ -333,7 +399,7 @@
   const api = {
     FORMAT, MARKS_FORMAT, BACKUP_FORMAT, VERSION, TYPE_LABELS,
     esc, fmt, slug, round2, extractJson, normaliseQuiz, startAttempt, isAnswered, grade,
-    finishAttempt, totals, setMark, buildMarkingRequest, applyMarks
+    finishAttempt, totals, setMark, buildMarkingRequest, applyMarks, outputMatches, judgeRun
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.QuizCore = api;
