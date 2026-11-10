@@ -81,7 +81,8 @@
     const a = parts[0], b = parts[1];
     let nav = 'home';
     window.scrollTo(0, 0);
-    if (a === 'import') { nav = 'import'; viewImport(); }
+    if (a === 'install') { nav = ''; viewInstall(b); }
+    else if (a === 'import') { nav = 'import'; viewImport(); }
     else if (a === 'help') { nav = 'help'; viewHelp(); }
     else if (a === 'quiz' && quizzes[b]) viewQuiz(quizzes[b]);
     else if (a === 'attempt' && attempts[b] && !attempts[b].finishedAt) viewAttempt(attempts[b]);
@@ -102,7 +103,8 @@
   }
   function viewHome() {
     const list = Object.values(quizzes).sort((a, b) => (b.importedAt || 0) - (a.importedAt || 0));
-    let h = '<div class="pagehead"><h1>My quizzes</h1><a class="btn primary" href="#/import">Import quiz</a></div>';
+    let h = '<div class="pagehead"><h1>My quizzes</h1><span class="btnrow" style="margin:0">' +
+      (standalone() ? '' : '<a class="btn" href="#/install">Install app</a>') + '<a class="btn primary" href="#/import">Import quiz</a></span></div>';
     if (!list.length) {
       h += '<div class="card empty"><h2 style="margin-top:0">No quizzes yet</h2>' +
         '<p class="muted">Ask Claude to write a quiz, then paste it in here. It is checked and ready to sit straight away.</p>' +
@@ -446,6 +448,46 @@
     }
   }
 
+  /* ---------- install ---------- */
+  let installEvt = null;   // Chrome/Edge hand us this when the app can be installed with one click
+  const onInstallScreen = () => /^#\/install/.test(location.hash);
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (onInstallScreen()) route(); });
+  window.addEventListener('appinstalled', () => { installEvt = null; toast('QuizDrop installed'); if (onInstallScreen()) route(); });
+  function standalone() { return (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true; }
+  function thisDevice() {
+    const ua = navigator.userAgent;
+    if (/iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)) return 'ios';
+    if (/Android/i.test(ua)) return 'android';
+    return 'windows';   // any other computer installs the same way as Windows
+  }
+  function viewInstall(want) {
+    const names = { windows: 'Windows', android: 'Android', ios: 'iPhone / iPad' };
+    const mine = thisDevice(), dev = names[want] ? want : mine, here = dev === mine;
+    const url = location.origin + location.pathname + '#/install/' + dev;
+    let h = '<div class="pagehead"><h1>Install QuizDrop</h1></div><div class="btnrow">' +
+      Object.keys(names).map(k => '<a class="btn' + (k === dev ? ' primary' : '') + '" href="#/install/' + k + '">' + names[k] + '</a>').join('') + '</div><div class="card">';
+    if (standalone()) {
+      h += '<h3>Already installed</h3><p>You are using the installed app on this device.</p>';
+    } else if (!here) {
+      h += '<h3>Open this on your ' + names[dev] + ' device</h3><p>This device is ' + names[mine] + '. Open the link below on the ' + names[dev] + ' device and it will take you through installing there.</p>' +
+        '<p class="answerbox small">' + esc(url) + '</p><div class="btnrow" style="margin-bottom:0"><button class="btn primary" data-act="copylink" data-url="' + esc(url) + '">Copy link</button></div>';
+    } else if (dev === 'ios') {
+      h += '<h3>Add it to your Home Screen</h3><ol class="steps"><li>Open this page in <strong>Safari</strong>.</li><li>Tap the <strong>Share</strong> button (the square with an arrow).</li>' +
+        '<li>Choose <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</li></ol><p class="muted small">QuizDrop then opens from its own icon and works offline.</p>';
+    } else if (installEvt) {
+      h += '<h3>Ready to install on this device</h3><div class="btnrow"><button class="btn primary" data-act="install">Install QuizDrop</button></div>' +
+        '<p class="muted small" style="margin-bottom:0">It gets its own icon and window, and works offline.</p>';
+    } else {
+      h += '<h3>Install from the browser menu</h3><ol class="steps">' + (dev === 'android'
+        ? '<li>Open this page in <strong>Chrome</strong>.</li><li>Tap the <strong>&#8942;</strong> menu.</li><li>Choose <strong>Add to Home screen</strong>, then <strong>Install</strong>.</li>'
+        : '<li>Open this page in <strong>Chrome</strong> or <strong>Edge</strong>.</li><li>Click the install icon at the right-hand end of the address bar, or open the browser menu.</li>' +
+          '<li>Choose <strong>Install QuizDrop</strong> (in Edge: Apps &rarr; Install this site as an app).</li>') +
+        '</ol><p class="muted small" style="margin-bottom:0">An Install button appears here when the browser allows one-click install. If it never does, the app may already be installed, or this browser cannot install apps.</p>';
+    }
+    h += '</div><div class="btnrow"><a class="btn" href="#/">' + (standalone() ? 'Go to my quizzes' : 'Or just use it in the browser') + '</a></div>';
+    app.innerHTML = h;
+  }
+
   /* ---------- help ---------- */
   function viewHelp() {
     app.innerHTML = '<div class="pagehead"><h1>Make quizzes with Claude</h1></div>' +
@@ -462,7 +504,7 @@
       '<div class="card" style="margin-top:1rem"><h3>Written answers</h3><p>Multiple choice, true/false, short answer, numerical, matching and ordering questions are marked instantly. ' +
       'Written answers are marked by Claude: after you submit, the review screen gives you a marking request to copy into a chat, and you paste Claude\'s reply into Import.</p></div>' +
       '<div class="card" style="margin-top:1rem"><h3>Install the app</h3><p><strong>Windows / Android (Chrome or Edge):</strong> open the browser menu and choose <em>Install app</em> or <em>Add to Home screen</em>. ' +
-      '<strong>iPhone / iPad (Safari):</strong> Share &rarr; <em>Add to Home Screen</em>. Once installed it works offline.</p>' +
+      '<strong>iPhone / iPad (Safari):</strong> Share &rarr; <em>Add to Home Screen</em>. Once installed it works offline. <a href="#/install">Install on this device</a></p>' +
       '<p class="muted small">Quizzes and results stay on the device you use. To share a quiz with someone, open it and choose Share quiz file.</p></div>';
   }
 
@@ -534,6 +576,11 @@
         toast('Mark saved');
         break;
       }
+      case 'install':
+        if (installEvt) { const ev = installEvt; installEvt = null; ev.prompt(); try { await ev.userChoice; } catch (err) { /* dismissed */ } }
+        route();
+        break;
+      case 'copylink': toast(await copyText(el.dataset.url) ? 'Link copied' : 'Could not copy - select the link above instead'); break;
       case 'import': runImport([document.getElementById('imp').value]); break;
       case 'paste':
         try { const t = await navigator.clipboard.readText(); document.getElementById('imp').value = t; if (t.trim()) runImport([t]); }

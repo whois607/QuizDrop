@@ -1,5 +1,5 @@
 /* Offline support: fresh copy from the network when there is one, otherwise the saved copy. */
-const CACHE = 'quizdrop-v1';
+const CACHE = 'quizdrop-v2';
 const ASSETS = [
   './', 'index.html', 'app.css', 'core.js', 'app.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'samples/solar-system.quiz.json',
