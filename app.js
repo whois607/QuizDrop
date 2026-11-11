@@ -484,6 +484,9 @@
 
   /* ---------- review ---------- */
   const mark = ok => ok ? ' <span class="tick" aria-label="correct">&#10003;</span>' : ' <span class="cross" aria-label="incorrect">&#10007;</span>';
+  const isAns = ' <span class="ansTag">Correct answer</span>';
+  // Review class for an option: chosen ones go green or red, and correct ones you did not choose go green too.
+  const optCls = (on, ok) => ok ? ' right' : (on ? ' wrong' : '');
 
   function reviewAnswer(q, r, i) {
     const none = '<div class="muted">No answer given.</div>';
@@ -492,14 +495,14 @@
         const multi = q.type === 'multiselect';
         return q.options.map((o, j) => {
           const on = multi ? Array.isArray(r) && r.includes(j) : r === j;
-          return '<div class="opt review' + (on ? (o.correct ? ' right' : ' wrong') : '') + '"><input type="' + (multi ? 'checkbox' : 'radio') + '" disabled' + (on ? ' checked' : '') + '>' +
-            '<span class="ltr">' + LET[j] + '.</span><span>' + optBody(o) + (on ? mark(o.correct) : '') +
+          return '<div class="opt review' + optCls(on, o.correct) + '"><input type="' + (multi ? 'checkbox' : 'radio') + '" disabled' + (on ? ' checked' : '') + '>' +
+            '<span class="ltr">' + LET[j] + '.</span><span>' + optBody(o) + (on ? mark(o.correct) : (o.correct ? isAns : '')) +
             (on && o.feedback ? '<br><span class="small">' + fmt(o.feedback) + '</span>' : '') + '</span></div>';
         }).join('');
       }
       case 'truefalse':
-        return [true, false].map(v => '<div class="opt review' + (r === v ? (v === q.answer ? ' right' : ' wrong') : '') + '"><input type="radio" disabled' + (r === v ? ' checked' : '') + '><span>' +
-          (v ? 'True' : 'False') + (r === v ? mark(v === q.answer) : '') + '</span></div>').join('');
+        return [true, false].map(v => '<div class="opt review' + optCls(r === v, v === q.answer) + '"><input type="radio" disabled' + (r === v ? ' checked' : '') + '><span>' +
+          (v ? 'True' : 'False') + (r === v ? mark(v === q.answer) : (v === q.answer ? isAns : '')) + '</span></div>').join('');
       case 'shortanswer': case 'numerical':
         if (!C.isAnswered(q, r)) return none;
         return '<div class="prompt">Your answer:</div><div class="answerbox">' + esc(r) + (q.unit ? ' ' + esc(q.unit) : '') + mark(C.grade(q, r).state === 'correct') + '</div>';
