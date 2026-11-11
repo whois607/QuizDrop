@@ -23,9 +23,9 @@ test('the example inside the skill folder and every json block in the instructio
   assert.deepStrictEqual(C.normaliseQuiz(ex).errors, []);
   const md = fs.readFileSync(path.join(root, 'claude-package', 'INSTRUCTIONS.md'), 'utf8');
   const blocks = [...md.matchAll(/```json\n([\s\S]*?)```/g)].map(m => JSON.parse(m[1]));
-  assert.ok(blocks.length >= 12);
+  assert.ok(blocks.length >= 14);
   const qs = blocks.filter(b => b.type);
-  assert.strictEqual(qs.length, 10);
+  assert.strictEqual(qs.length, 12);
   const r = C.normaliseQuiz({ format: 'quizdrop', version: 1, title: 'Docs', questions: qs });
   assert.deepStrictEqual(r.errors, []);
 });
@@ -206,6 +206,57 @@ test('code questions: checking, marking and stale runs', () => {
     { type: 'code', text: 'd', tests: [{ expected: '1', hidden: true }] }
   ] });
   assert.strictEqual(bad.errors.length, 4);
+});
+
+test('LaTeX becomes maths spans; code, currency and escaped dollars are left alone', () => {
+  const span = (tex, d) => '<span class="math' + (d ? ' display' : '') + '" data-tex="' + tex + '">' + tex + '</span>';
+  assert.strictEqual(C.fmt('Solve $x^2 = 4$ now'), 'Solve ' + span('x^2 = 4') + ' now');
+  assert.strictEqual(C.fmt('$$\\frac{a}{b}$$'), span('\\frac{a}{b}', true));
+  assert.strictEqual(C.fmt('\\(a < b\\) and \\[c\\]'), span('a &lt; b') + ' and ' + span('c', true));
+  assert.strictEqual(C.fmt('It costs $5 and $10, or \\$7.'), 'It costs $5 and $10, or $7.');
+  assert.strictEqual(C.fmt('`$x$` stays code'), '<code>$x$</code> stays code');
+  assert.strictEqual(C.fmt('$a$\n$b$'), span('a') + '<br>' + span('b'));
+  assert.ok(C.fmt('$$a \\\\\nb$$').includes('data-tex="a \\\\\nb"'));
+  // single backslashes that JSON turned into control characters are put back
+  const broken = JSON.parse('{"t": "$\\frac{1}{2} \\theta \\beta \\rho \\neq \\times$"}').t;
+  assert.ok(/[\f\t\x08\r\n]/.test(broken));
+  assert.strictEqual(C.fmt(broken), span('\\frac{1}{2} \\theta \\beta \\rho \\neq \\times'));
+});
+
+test('quiz text with undoubled LaTeX backslashes still imports', () => {
+  const text = '{"format":"quizdrop","title":"T","questions":[{"type":"truefalse","text":"Is \\\\(\\\\alpha\\\\) = $\\\\sqrt{2}$ \\\\underline{x}?","answer":true}]}'.replace(/\\\\/g, '\\');
+  assert.throws(() => JSON.parse(text));
+  const q = C.extractJson(text).questions[0];
+  assert.strictEqual(q.text, 'Is \\(\\alpha\\) = $\\sqrt{2}$ \\underline{x}?');
+  assert.strictEqual(C.extractJson('{"a": "tab\\there \\u00e9 \\"q\\" back\\\\slash"}').a, 'tab\there é "q" back\\slash');
+});
+
+test('images: SVG markup, embedded pictures and https links', () => {
+  const svg = "<svg viewBox='0 0 10 10' width='10' height='10'><circle cx='5' cy='5' r='4'/></svg>";
+  const r = C.normaliseQuiz({ format: 'quizdrop', title: 'Img', questions: [
+    { type: 'truefalse', text: 'a', answer: true, image: { src: svg, alt: 'A circle', width: 120 } },
+    { type: 'truefalse', text: 'b', answer: true, image: 'data:image/png;base64,iVBORw0KGgo=' },
+    { type: 'multichoice', text: 'c', options: [{ text: 'A', correct: true, image: 'https://example.org/a.png' }, { text: 'B' }] }
+  ] });
+  assert.deepStrictEqual(r.errors, []);
+  const [a, b, c] = r.quiz.questions;
+  assert.ok(a.image.src.startsWith('data:image/svg+xml;charset=utf-8,'));
+  assert.ok(decodeURIComponent(a.image.src).includes('<svg xmlns="http://www.w3.org/2000/svg" viewBox'));
+  assert.deepStrictEqual([a.image.alt, a.image.width], ['A circle', 120]);
+  assert.deepStrictEqual(b.image, { src: 'data:image/png;base64,iVBORw0KGgo=', alt: '', width: 0 });
+  assert.strictEqual(c.options[0].image.src, 'https://example.org/a.png');
+  assert.strictEqual(c.options[1].image, undefined);
+  const at = C.startAttempt(r.quiz, 1, () => 0.42);
+  assert.strictEqual(at.questions[0].image.alt, 'A circle');
+
+  const bad = C.normaliseQuiz({ title: 'Bad', questions: [
+    { type: 'truefalse', text: 'a', answer: true, image: 'http://example.org/a.png' },
+    { type: 'truefalse', text: 'b', answer: true, image: 'javascript:alert(1)' },
+    { type: 'truefalse', text: 'c', answer: true, image: { alt: 'no src' } },
+    { type: 'truefalse', text: 'd', answer: true, image: 'data:text/html,<b>x</b>' },
+    { type: 'truefalse', text: 'e', answer: true, image: 'data:image/png;base64,' + 'A'.repeat(2000001) }
+  ] });
+  assert.strictEqual(bad.errors.length, 5);
 });
 
 console.log('\nAll ' + n + ' tests passed.');

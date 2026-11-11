@@ -20,6 +20,13 @@ A simple quiz app in the style of Moodle. Ask Claude to write the questions, pas
 
 Multiple choice, multiple answers, true/false, short answer, numerical, matching and ordering questions are marked instantly. Written answers are marked by Claude: the app gives you a marking request to paste into a chat, and you paste the reply back.
 
+## Maths and images
+
+* **Maths:** questions, options and feedback can contain LaTeX (`$...$` inline, `$$...$$` displayed), typeset with KaTeX. The maths files are small and are saved for offline use when the app is installed.
+* **Images:** any question, and any multiple-choice option, can carry an image. Claude draws diagrams as SVG directly in the quiz file; photos and scans can be embedded in the file, or linked by `https://` address (links need internet).
+* Images are always shown on a white panel, and can only display: an SVG inside a quiz file cannot run scripts or load anything.
+* Quiz files with embedded pictures can be large, so quizzes and attempts are stored in the browser's IndexedDB. Anything saved by earlier versions is carried over automatically the first time the new version opens.
+
 ## Code questions
 
 Like CodeRunner in Moodle: you write code, press **Check**, and see a table of tests with expected and actual output. Check as often as you like; marks are given only when every test passes.

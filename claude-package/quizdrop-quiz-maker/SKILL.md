@@ -53,7 +53,66 @@ If the user has not said, choose sensible defaults: about 10 questions, a mix of
 | `id` | no | Short unique label, e.g. `"q7"`. Added automatically if left out |
 | `feedback` | no | Explanation shown after the quiz is submitted. Include it whenever it helps learning |
 
-Text fields are plain text. You may use `**bold**`, `` `code` `` and triple-backtick code blocks, and `\n` for a new line. No HTML, no LaTeX, no images, no tables.
+Text fields are plain text with a little formatting: `**bold**`, `` `code` ``, triple-backtick code blocks, and `\n` for a new line. No HTML and no tables. Maths (LaTeX) and images are supported as described next.
+
+### Maths (LaTeX)
+
+Write maths in LaTeX between dollar signs: `$...$` inside a sentence, `$$...$$` for a displayed equation on its own line. The app typesets it with KaTeX, so use standard LaTeX maths commands (`\frac`, `\sqrt`, `\int`, `\sum`, `\vec`, `\text{}`, `\begin{bmatrix}`, Greek letters and so on). No `\usepackage`, no `\newcommand`, no document-level LaTeX.
+
+**Inside JSON every backslash must be doubled.** Write `"$\\frac{1}{2}$"`, never `"$\frac{1}{2}$"`. A single backslash either makes the file invalid or silently becomes a control character (`\f`, `\t`, `\b`, `\n` and `\r` are JSON escapes, which ruins `\frac`, `\theta`, `\beta`, `\nu`, `\rho`). Check every LaTeX command for a doubled backslash before you finish.
+
+```json
+{
+  "type": "multichoice",
+  "text": "Evaluate $\\int_0^1 2x \\, dx$.",
+  "options": [
+    { "text": "$1$", "correct": true },
+    { "text": "$2$" },
+    { "text": "$\\frac{1}{2}$" }
+  ],
+  "feedback": "$$\\int_0^1 2x \\, dx = \\left[ x^2 \\right]_0^1 = 1$$"
+}
+```
+
+- Maths is typeset in: the quiz `description`, question `text`, option `text`, `feedback`, matching `left` items, ordering `items`, and an essay's `modelAnswer` and `markingGuide`.
+- Maths is NOT typeset in (write plain characters or Unicode such as `x² + 1` or `π/2` instead): matching `right` items and `distractors` (they sit in a drop-down list), short-answer `answers`, and everything in a `code` question's `starter`, `tests` and `solution`.
+- A real dollar sign is written `\\$`, for example `"It costs \\$5."`
+- Students cannot type LaTeX. For a maths answer use `numerical`, `multichoice`, or `shortanswer` with plain-text answers.
+
+### Images
+
+Any question can have one image, shown under the question text. Each option of a `multichoice` or `multiselect` question can have its own `image` as well (keep the option `text` too, e.g. "Graph A").
+
+```json
+{
+  "type": "numerical",
+  "text": "The block is in equilibrium. What is the tension $T$ in newtons? Take $g = 9.8\\ \\text{m/s}^2$.",
+  "answer": 49,
+  "tolerance": 0.5,
+  "unit": "N",
+  "image": {
+    "src": "<svg viewBox='0 0 200 170' width='200' height='170' font-family='sans-serif' font-size='14'><line x1='40' y1='15' x2='160' y2='15' stroke='#222' stroke-width='4'/><line x1='100' y1='15' x2='100' y2='95' stroke='#222' stroke-width='2'/><rect x='70' y='95' width='60' height='50' fill='#cfe3f7' stroke='#222' stroke-width='2'/><text x='100' y='125' text-anchor='middle'>5 kg</text><text x='110' y='60'>T</text></svg>",
+    "alt": "A 5 kg block hanging at rest from a ceiling by one vertical string labelled T",
+    "width": 200
+  }
+}
+```
+
+`src` must be one of these:
+
+1. **SVG markup that you write** - the best choice for diagrams, graphs, circuits, geometry and free-body diagrams. Put the whole `<svg ...>...</svg>` in the string. Rules:
+   - Include `viewBox`, `width` and `height` on the `<svg>` tag.
+   - Use single quotes for attributes so nothing needs escaping in JSON, and keep it on one line.
+   - The app shows every image on a white panel, so use dark lines and dark text; do not rely on a coloured page background.
+   - Text at least 12px, in a generic font family (`sans-serif`, `serif`, `monospace`).
+   - No scripts, no `<image>` or `<foreignObject>` elements, no external links, fonts or stylesheets, no LaTeX inside the SVG (use plain or Unicode text for labels).
+   - Keep it simple and accurate: label what the student needs, and check that coordinates put things where the question says they are.
+2. **An embedded picture** - a `data:image/png;base64,...` URI (jpeg, gif and webp also work). Use this only when the user gave you an image file and you can run code to encode it. Resize it first to at most about 800 px wide and keep each picture under about 200 KB. Never write base64 by hand or from memory.
+3. **An `https://` link the user gave you.** It needs an internet connection when the quiz is sat, so prefer 1 or 2. Never guess or invent a URL.
+
+`alt` is a short description for screen readers and for when the image cannot load; it must not give the answer away. `width` (optional) is the largest width to show it at, in pixels.
+
+If a question needs a picture you cannot produce accurately, rewrite the question so it does not need one.
 
 ### 1. `multichoice` - one correct answer
 

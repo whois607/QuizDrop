@@ -39,37 +39,81 @@
     return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   }
 
-  /* Escapes everything, then allows a tiny bit of markdown: ```code blocks```, `code`, **bold**, new lines. */
+  /* Escapes everything, then allows a little formatting: ```code blocks```, `code`, **bold**, new lines,
+     and LaTeX maths ($inline$, $$display$$, \( \), \[ \]). Maths becomes a placeholder span holding the
+     LaTeX source; the app typesets it with KaTeX, and the source stays readable if KaTeX is not available. */
   function fmt(s) {
     let h = esc(s);
-    const blocks = [];
-    h = h.replace(/```[a-z0-9]*\n?([\s\S]*?)```/gi, (m, c) => {
-      blocks.push('<pre>' + c.replace(/\n$/, '') + '</pre>');
-      return '\u0000' + (blocks.length - 1) + '\u0000';
-    });
-    h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    if (h.indexOf('$') >= 0 || h.indexOf('\\') >= 0) {
+      // Undo the damage when LaTeX was put in JSON with single backslashes (\frac became form-feed + "rac", and so on).
+      h = h.replace(/\f/g, '\\f').replace(/\x08/g, '\\b').replace(/\r(?!\n)/g, '\\r')
+        .replace(/\t(?=(?:heta|ext|extbf|extit|imes|an|anh|au|o|frac|ilde|op|riangle|herefore|binom)(?![A-Za-z]))/g, '\\t')
+        .replace(/\n(?=(?:eq|abla|otin|leq|geq|ewline)(?![A-Za-z]))/g, '\\n');
+    }
+    const keep = [];
+    const hold = html => { keep.push(html); return '\u0000' + (keep.length - 1) + '\u0000'; };
+    const math = (tex, display) => { tex = tex.trim(); return hold('<span class="math' + (display ? ' display' : '') + '" data-tex="' + tex + '">' + tex + '</span>'); };
+    h = h.replace(/```[a-z0-9]*\n?([\s\S]*?)```/gi, (m, c) => hold('<pre>' + c.replace(/\n$/, '') + '</pre>'))
+      .replace(/`([^`\n]+)`/g, (m, c) => hold('<code>' + c + '</code>'))
+      .replace(/\\\$/g, () => hold('$'))
+      .replace(/\$\$([\s\S]+?)\$\$/g, (m, t) => math(t, true))
+      .replace(/\\\[([\s\S]+?)\\\]/g, (m, t) => math(t, true))
+      .replace(/\\\(([\s\S]+?)\\\)/g, (m, t) => math(t, false))
+      .replace(/\$([^\s$](?:[^$\n]*?[^\s$\\])?)\$(?!\d)/g, (m, t) => math(t, false))
       .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
       .replace(/\n/g, '<br>');
-    return h.replace(/\u0000(\d+)\u0000/g, (m, i) => blocks[+i]);
+    for (let k = 0; k < 5 && h.indexOf('\u0000') >= 0; k++) h = h.replace(/\u0000(\d+)\u0000/g, (m, i) => keep[+i]);
+    return h;
+  }
+
+  /* JSON.parse, with one retry that doubles any backslash JSON does not allow (\( \alpha \sqrt ...),
+     which is what LaTeX looks like when the backslashes were not doubled. */
+  function parseLoose(s) {
+    try { return JSON.parse(s); } catch (first) {
+      const fixed = s.replace(/\\([\s\S]?)/g, (m, c, off) =>
+        (/["\\\/bfnrt]/.test(c) || (c === 'u' && /^[0-9a-fA-F]{4}/.test(s.slice(off + 2, off + 6)))) ? m : '\\\\' + c);
+      if (fixed === s) throw first;
+      try { return JSON.parse(fixed); } catch (e) { throw first; }
+    }
   }
 
   /* Pulls the JSON out of whatever was pasted: a bare file, a ```json block, or JSON with chat text around it. */
   function extractJson(text) {
     const t = String(text || '').replace(/^﻿/, '').trim();
     if (!t) throw new Error('Nothing to import - paste the quiz text or choose a file first.');
-    try { return JSON.parse(t); } catch (e) { /* keep trying */ }
+    try { return parseLoose(t); } catch (e) { /* keep trying */ }
     const fence = /```[a-z]*\s*([\s\S]*?)```/gi;
     let m;
     while ((m = fence.exec(t))) {
-      try { return JSON.parse(m[1].trim()); } catch (e) { /* keep trying */ }
+      try { return parseLoose(m[1].trim()); } catch (e) { /* keep trying */ }
     }
     const a = t.indexOf('{'), b = t.lastIndexOf('}');
     if (a >= 0 && b > a) {
-      try { return JSON.parse(t.slice(a, b + 1)); } catch (e) {
+      try { return parseLoose(t.slice(a, b + 1)); } catch (e) {
         throw new Error('The quiz text is not valid JSON (' + e.message + '). Ask Claude to send it again as one complete json block.');
       }
     }
     throw new Error('No quiz data found in that text. It should start with { and contain "format": "quizdrop".');
+  }
+
+  /* An image is SVG markup, an embedded data:image URI, or an https link. SVG markup is turned into a data URI
+     so it is only ever shown through <img>, where it cannot run scripts or load anything. */
+  function normaliseImage(v, bad) {
+    if (v === undefined || v === null || v === '') return null;
+    let src = isObj(v) ? v.src : v;
+    if (typeof src !== 'string' || !src.trim()) { bad('has an "image" with no "src"'); return null; }
+    src = src.trim();
+    if (/^(<\?xml[^>]*\?>\s*)?<svg[\s>]/i.test(src)) {
+      src = src.replace(/^<\?xml[^>]*\?>\s*/i, '');
+      if (!/^<svg[^>]*\sxmlns=/i.test(src)) src = src.replace(/^<svg/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+      src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(src);
+    } else if (!/^data:image\/(png|jpe?g|gif|webp|svg\+xml)[;,]/i.test(src) && !/^https:\/\/\S+$/i.test(src)) {
+      bad('has an "image" that is not SVG markup, a data:image/... URI or an https:// link');
+      return null;
+    }
+    if (src.length > 2000000) { bad('has an image over about 1.5 MB - make it smaller'); return null; }
+    const w = isObj(v) ? Number(v.width) : NaN;
+    return { src, alt: isObj(v) ? str(v.alt) : '', width: Number.isFinite(w) && w > 0 ? Math.round(w) : 0 };
   }
 
   function normaliseQuestion(rq, bad) {
@@ -82,6 +126,8 @@
     let marks = rq.marks === undefined ? 1 : Number(rq.marks);
     if (!Number.isFinite(marks) || marks <= 0) { bad('"marks" must be a number above 0'); marks = 1; }
     const q = { id: str(rq.id), type, text, marks, feedback: str(rq.feedback) || str(rq.explanation) };
+    const image = normaliseImage(rq.image, bad);
+    if (image) q.image = image;
     const list = v => (Array.isArray(v) ? v : (v === undefined || v === null ? [] : [v]));
     const unique = (arr, what) => {
       const seen = new Set();
@@ -95,7 +141,10 @@
         const t = isObj(o) ? str(o.text) : str(o);
         if (!t) bad('option ' + (j + 1) + ' is empty');
         const correct = (isObj(o) && o.correct === true) || answers.some(a => same(a, t));
-        return { text: t, correct, feedback: isObj(o) ? str(o.feedback) : '' };
+        const opt = { text: t, correct, feedback: isObj(o) ? str(o.feedback) : '' };
+        const oi = isObj(o) ? normaliseImage(o.image, bad) : null;
+        if (oi) opt.image = oi;
+        return opt;
       });
       unique(q.options.map(o => o.text).filter(Boolean), 'option');
       const n = q.options.filter(o => o.correct).length;

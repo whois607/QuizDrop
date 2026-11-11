@@ -25,13 +25,54 @@
     ls.set(k + '.damaged-' + Date.now(), raw);   // never throw unreadable data away
     return {};
   }
-  const quizzes = loadKey('qd.quizzes');
-  const attempts = loadKey('qd.attempts');
-  function saveQuizzes() { if (!ls.set('qd.quizzes', JSON.stringify(quizzes))) toast('Could not save on this device - storage is full or blocked'); }
-  function saveAttempts() {
-    clearTimeout(saveTimer); saveTimer = null;
-    if (!ls.set('qd.attempts', JSON.stringify(attempts))) toast('Could not save on this device - storage is full or blocked');
+  /* Quizzes and attempts live in IndexedDB (plenty of room for images). localStorage is the fallback where
+     IndexedDB is unavailable, and is where versions before images kept everything, so it is read once to
+     carry that data over. The old localStorage copy is left alone. */
+  const quizzes = {}, attempts = {};
+  let idb = null;
+  function idbOpen() {
+    return new Promise(res => {
+      try {
+        const rq = indexedDB.open('quizdrop', 1);
+        rq.onupgradeneeded = () => rq.result.createObjectStore('kv');
+        rq.onsuccess = () => res(rq.result);
+        rq.onerror = rq.onblocked = () => res(null);
+      } catch (e) { res(null); }
+    });
   }
+  function idbDo(mode, fn) {
+    return new Promise(res => {
+      try {
+        const tx = idb.transaction('kv', mode), rq = fn(tx.objectStore('kv'));
+        tx.oncomplete = () => res({ ok: true, value: rq.result });
+        tx.onerror = tx.onabort = () => res({ ok: false });
+      } catch (e) { res({ ok: false }); }
+    });
+  }
+  function persist(name, obj) {
+    const fail = () => toast('Could not save on this device - storage is full or blocked');
+    if (idb) idbDo('readwrite', s => s.put(obj, name)).then(r => { if (!r.ok) fail(); });
+    else if (!ls.set('qd.' + name, JSON.stringify(obj))) fail();
+  }
+  async function loadAll() {
+    idb = await idbOpen();
+    let q, a;
+    if (idb) {
+      const rq = await idbDo('readonly', s => s.get('quizzes')), ra = await idbDo('readonly', s => s.get('attempts'));
+      if (rq.ok && ra.ok) { q = rq.value; a = ra.value; } else idb = null;
+    }
+    if (!q && !a) {
+      q = loadKey('qd.quizzes'); a = loadKey('qd.attempts');
+      if (idb && (Object.keys(q).length || Object.keys(a).length)) {
+        await idbDo('readwrite', s => s.put(q, 'quizzes'));
+        await idbDo('readwrite', s => s.put(a, 'attempts'));
+      }
+    }
+    Object.assign(quizzes, q || {});
+    Object.assign(attempts, a || {});
+  }
+  function saveQuizzes() { persist('quizzes', quizzes); }
+  function saveAttempts() { clearTimeout(saveTimer); saveTimer = null; persist('attempts', attempts); }
   function saveAttemptsSoon() { if (!saveTimer) saveTimer = setTimeout(saveAttempts, 400); }
   function flush() { if (saveTimer) saveAttempts(); }
   window.addEventListener('pagehide', flush);
@@ -72,6 +113,39 @@
     ta.remove();
     return ok;
   }
+
+  /* ---------- images and maths ---------- */
+  function imageHtml(im, small) {
+    if (!im) return '';
+    const w = im.width || (small ? 260 : 0);
+    return '<span class="qimg' + (small ? ' small' : '') + '"><img src="' + esc(im.src) + '" alt="' + esc(im.alt) + '" loading="lazy"' + (w ? ' style="max-width:min(100%,' + w + 'px)"' : '') + '></span>';
+  }
+  const optBody = o => fmt(o.text) + imageHtml(o.image, true);
+
+  /* fmt() leaves LaTeX in .math spans. KaTeX is fetched the first time a screen contains one (then kept for
+     offline use by the service worker). Until it arrives, or if it never does, the LaTeX source shows. */
+  const KATEX = 'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/';
+  let katexAsked = false;
+  function typeset() {
+    if (!window.katex) return;
+    document.querySelectorAll('.math:not(.done)').forEach(el => {
+      el.classList.add('done');
+      try { window.katex.render(el.dataset.tex, el, { displayMode: el.classList.contains('display'), throwOnError: false }); } catch (e) { /* source stays */ }
+    });
+  }
+  function needMath() {
+    if (window.katex) { typeset(); return; }
+    if (katexAsked || !document.querySelector('.math')) return;
+    katexAsked = true;
+    const css = document.createElement('link');
+    css.rel = 'stylesheet'; css.href = KATEX + 'katex.min.css'; css.crossOrigin = 'anonymous';
+    const js = document.createElement('script');
+    js.src = KATEX + 'katex.min.js'; js.crossOrigin = 'anonymous';
+    js.onload = typeset;
+    js.onerror = () => { katexAsked = false; js.remove(); css.remove(); };
+    document.head.appendChild(css); document.head.appendChild(js);
+  }
+  new MutationObserver(needMath).observe(app, { childList: true, subtree: true });
 
   /* ---------- routing ---------- */
   function go(path) { if (location.hash === '#/' + path) route(); else location.hash = '#/' + path; }
@@ -161,11 +235,11 @@
     switch (q.type) {
       case 'multichoice':
         return '<div class="prompt">Select one:</div>' + q.options.map((o, j) =>
-          '<label class="opt"><input type="radio" name="ans" value="' + j + '"' + (r === j ? ' checked' : '') + '><span class="ltr">' + LET[j] + '.</span><span>' + fmt(o.text) + '</span></label>').join('') +
+          '<label class="opt"><input type="radio" name="ans" value="' + j + '"' + (r === j ? ' checked' : '') + '><span class="ltr">' + LET[j] + '.</span><span>' + optBody(o) + '</span></label>').join('') +
           '<button class="link" data-act="clear">Clear my choice</button>';
       case 'multiselect':
         return '<div class="prompt">Select one or more:</div>' + q.options.map((o, j) =>
-          '<label class="opt"><input type="checkbox" value="' + j + '"' + (Array.isArray(r) && r.includes(j) ? ' checked' : '') + '><span class="ltr">' + LET[j] + '.</span><span>' + fmt(o.text) + '</span></label>').join('');
+          '<label class="opt"><input type="checkbox" value="' + j + '"' + (Array.isArray(r) && r.includes(j) ? ' checked' : '') + '><span class="ltr">' + LET[j] + '.</span><span>' + optBody(o) + '</span></label>').join('');
       case 'truefalse':
         return '<div class="prompt">Select one:</div>' + [true, false].map(v =>
           '<label class="opt"><input type="radio" name="ans" value="' + v + '"' + (r === v ? ' checked' : '') + '><span>' + (v ? 'True' : 'False') + '</span></label>').join('');
@@ -232,7 +306,7 @@
       '<div class="state" id="qstate">' + (review ? (q.type === 'code' && res.state === 'needsmarking' ? 'Not tested yet' : labels[res.state]) : stateText(at, i)) + '</div>' +
       '<div>' + (review && res.awarded !== null ? 'Mark ' + num(res.awarded) + ' out of ' + num(q.marks) : 'Marked out of ' + num(q.marks)) + '</div>' +
       (review ? (at.flags[i] ? '<div>Flagged</div>' : '') : '<button class="link" data-act="flag">' + (at.flags[i] ? 'Remove flag' : 'Flag question') + '</button>') +
-      '</div><div class="content"><div class="formulation"><div class="qtext">' + fmt(q.text) + '</div><div class="ablock">' +
+      '</div><div class="content"><div class="formulation"><div class="qtext">' + fmt(q.text) + '</div>' + imageHtml(q.image) + '<div class="ablock">' +
       (review ? reviewAnswer(q, r, i) : inputs(q, r)) + '</div></div>' + (review ? outcome(at, i) : '') + '</div></div>';
   }
 
@@ -419,7 +493,7 @@
         return q.options.map((o, j) => {
           const on = multi ? Array.isArray(r) && r.includes(j) : r === j;
           return '<div class="opt review' + (on ? (o.correct ? ' right' : ' wrong') : '') + '"><input type="' + (multi ? 'checkbox' : 'radio') + '" disabled' + (on ? ' checked' : '') + '>' +
-            '<span class="ltr">' + LET[j] + '.</span><span>' + fmt(o.text) + (on ? mark(o.correct) : '') +
+            '<span class="ltr">' + LET[j] + '.</span><span>' + optBody(o) + (on ? mark(o.correct) : '') +
             (on && o.feedback ? '<br><span class="small">' + fmt(o.feedback) + '</span>' : '') + '</span></div>';
         }).join('');
       }
@@ -635,6 +709,8 @@
       'Press Check as often as you like; marks are given when every test passes. The first Python question downloads Python itself (about 10 MB, needs internet once); after that it works offline. ' +
       'NumPy, SciPy, SymPy, pandas and Matplotlib are available and download the first time your code imports them.</p>' +
       '<p><strong>MATLAB</strong> cannot run inside the app. For MATLAB questions you run your code in MATLAB or Octave yourself and paste in what each test prints; the app checks it against the expected output.</p></div>' +
+      '<div class="card" style="margin-top:1rem"><h3>Maths and images</h3><p>Ask for maths and Claude writes it in LaTeX, which is typeset properly in questions, options and feedback. ' +
+      'Claude can also draw diagrams straight into the quiz, or embed a picture you give it. Images always show on a white panel.</p></div>' +
       '<div class="card" style="margin-top:1rem"><h3>Written answers</h3><p>Multiple choice, true/false, short answer, numerical, matching and ordering questions are marked instantly. ' +
       'Written answers are marked by Claude: after you submit, the review screen gives you a marking request to copy into a chat, and you paste Claude\'s reply into Import.</p></div>' +
       '<div class="card" style="margin-top:1rem"><h3>Install the app</h3><p><strong>Windows / Android (Chrome or Edge):</strong> open the browser menu and choose <em>Install app</em> or <em>Add to Home screen</em>. ' +
@@ -777,5 +853,5 @@
   });
 
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) navigator.serviceWorker.register('sw.js').catch(() => {});
-  route();
+  loadAll().then(route);
 })();

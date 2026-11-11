@@ -139,3 +139,8 @@ textarea.code { font-family: ui-monospace, Consolas, monospace; font-size: .9rem
   .tbl.kv th { width: 7rem; white-space: normal; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+.math.display { display: block; text-align: center; margin: .7rem 0; overflow-x: auto; overflow-y: hidden; }
+.math:not(.done) { font-family: ui-monospace, Consolas, monospace; font-size: .9em; }
+.qimg { display: block; margin: 0 0 1rem; }
+.qimg img { display: block; max-width: 100%; height: auto; background: #fff; border-radius: 6px; padding: 8px; }
+.qimg.small { margin: .4rem 0 0; }

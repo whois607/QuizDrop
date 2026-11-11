@@ -63,6 +63,7 @@
       "answer": 8.3,
       "tolerance": 0.5,
       "unit": "minutes",
+      "image": { "src": "<svg viewBox='0 0 420 110' width='420' height='110' font-family='sans-serif' font-size='13'><circle cx='50' cy='48' r='32' fill='#f5b301' stroke='#a66f00'/><text x='50' y='100' text-anchor='middle'>Sun</text><circle cx='370' cy='48' r='10' fill='#2a7de1' stroke='#174a8c'/><text x='370' y='100' text-anchor='middle'>Earth</text><line x1='92' y1='48' x2='348' y2='48' stroke='#333' stroke-width='2' stroke-dasharray='6 4'/><polygon points='348,42 360,48 348,54' fill='#333'/><text x='220' y='36' text-anchor='middle'>about 150 million km</text></svg>", "alt": "The Sun and the Earth with a dashed arrow between them labelled about 150 million km", "width": 420 },
       "feedback": "Light takes roughly 8 minutes 20 seconds to travel the 150 million km from the Sun to Earth."
     },
     {
@@ -89,7 +90,7 @@
       "id": "orbital-period",
       "type": "code",
       "language": "python",
-      "text": "Write a Python function `orbital_period(a)` that returns a planet's orbital period in Earth years, given its average distance from the Sun `a` in astronomical units (AU).\n\nUse Kepler's third law: T² = a³.",
+      "text": "Write a Python function `orbital_period(a)` that returns a planet's orbital period in Earth years, given its average distance from the Sun `a` in astronomical units (AU).\n\nUse Kepler's third law: $T^2 = a^3$.",
       "marks": 2,
       "starter": "def orbital_period(a):\n    ",
       "tests": [
@@ -98,7 +99,7 @@
         { "code": "print(round(orbital_period(0.39), 3))", "expected": "0.244", "hidden": true }
       ],
       "solution": "def orbital_period(a):\n    return a ** 1.5\n",
-      "feedback": "T² = a³ means T = a to the power 1.5. Jupiter, at 5.2 AU, takes nearly 12 years to go round the Sun."
+      "feedback": "$T^2 = a^3$ means $T = a^{1.5}$. Jupiter, at 5.2 AU, takes nearly 12 years to go round the Sun."
     },
     {
       "id": "pluto",
