@@ -1,14 +1,10 @@
 # QuizDrop
 
 <p align="center">
-  <a href="https://whois607.github.io/QuizDrop/#/install/windows"><img src="icons/btn-windows.svg" alt="Install on Windows" height="56"></a>
-  &nbsp;
-  <a href="https://whois607.github.io/QuizDrop/#/install/android"><img src="icons/btn-android.svg" alt="Install on Android" height="56"></a>
-  &nbsp;
-  <a href="https://whois607.github.io/QuizDrop/#/install/ios"><img src="icons/btn-ios.svg" alt="Install on iPhone / iPad" height="56"></a>
+  <a href="https://whois607.github.io/QuizDrop/"><img src="icons/btn-open.svg" alt="Open QuizDrop" height="80"></a>
 </p>
 
-<p align="center">Not sure? <a href="https://whois607.github.io/QuizDrop/#/install"><strong>Open QuizDrop</strong></a> and it works out your device for you.</p>
+<p align="center">Opens in your browser on any device. Nothing to install.</p>
 
 A simple quiz app in the style of Moodle. Ask Claude to write the questions, paste them in, and sit the quiz. Free, works offline, and nothing leaves your device.
 
